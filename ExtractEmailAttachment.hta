@@ -19,7 +19,7 @@
 		CAPTION="yes"
 		BORDERSTYLE="normal"
 		BORDER="thick"
-		APPLICATIONNAME="boomboom"></HTA:APPLICATION>
+		APPLICATIONNAME="AttachmentExtractor"></HTA:APPLICATION>
 <head>
 <style>
 body
@@ -35,7 +35,7 @@ margin-bottom: 3px;
 
 #divOutput{
 	font-family:'Segoe UI', Tahoma, Geneva, Verdana; 
-	font-size: 11pt;
+	font-size: 10pt;
 	border: 			2px inset;
 	overflow: 			scroll;
 	width: 				100%;
@@ -52,37 +52,42 @@ textarea{
 
 </style>
 
-<title>Extract Email Attachments</title>
+<title>Extract Outlook Email Attachments</title>
 
 
 </head>
-<SCRIPT LANGUAGE="VBScript">
+<script language = "vbscript" type = "text/vbscript">
+
 On Error Resume Next
 Const DESIGN_WIDTH  = 686		' default popup width in 96 dpi
 Const DESIGN_HEIGHT = 325		' default popup height in 96 dpi
+strHTML = ""
 
-'---------------------------------------------------------------------------
-' Window_onLoad - the main function
-'---------------------------------------------------------------------------
 Sub Window_onLoad		
-		Window.ResizeTo DESIGN_WIDTH, DESIGN_HEIGHT
-		WindowLeft = (Window.screen.availWidth / 2 - DESIGN_WIDTH  /2 )  
-		WindowTop  = (Window.screen.availHeight / 2 - DESIGN_HEIGHT / 2  )
-		Window.moveTo WindowLeft, WindowTop
-		
-		get_primary_mailbox
+	'-------------------------------------------------------------------
+	' Main function
+	'-------------------------------------------------------------------
+	Window.ResizeTo DESIGN_WIDTH, DESIGN_HEIGHT
+	WindowLeft = (Window.screen.availWidth / 2 - DESIGN_WIDTH  /2 )  
+	WindowTop  = (Window.screen.availHeight / 2 - DESIGN_HEIGHT / 2  )
+	Window.moveTo WindowLeft, WindowTop
+	
+	mailboxHTML.InnerHTML = "<font color=""darkred"" style=""font-size:10pt; font-weight:Bold;"">Connecting to Outlook Application ...</br></font>"
+	get_primary_mailbox
 End Sub
 
-Sub DisplayOutputInTextArea(msg)
+Sub DisplayOutputDiv(msg)		
+	'-------------------------------------------------------------------
+	' Print msg in the outputDiv inner html
+	'-------------------------------------------------------------------
 	divOutput.innerHTML = divOutput.innerHTML & msg & "</br>"
 	divOutput.doScroll("pageDown")
 End Sub
 
-Sub Sleep(delay)
-	objShell.Run "timeout " & delay, 0, True
-End Sub
-
 Sub PickFolder
+	'-------------------------------------------------------------------
+	' On Browse Folder event click
+	'-------------------------------------------------------------------
 	Set folder = objShellApp.BrowseForFolder(0, "Please select the folder.", 1, "")
 	If Not folder is Nothing Then
 		txt_output.value = folder.Self.path 
@@ -90,191 +95,152 @@ Sub PickFolder
 End Sub
 
 Sub get_primary_mailbox
-	DisplayOutputInTextArea "Connecting Outlook..."
+	'-------------------------------------------------------------------
+	' Populate the dropdownlist with the folders in the outlook mailbox
+	'-------------------------------------------------------------------
+	DisplayOutputDiv "Connecting Outlook..."
 	
-	' Set Primary folder
-	Const olFolderInbox = 6
-	Set objMailbox = objNamespace.GetDefaultFolder(olFolderInbox).Parent
-	DisplayOutputInTextArea "Found: " & objMailbox.Name 
+	strHTML = "<select style=""width:425px;"" id=""MailboxSelect"" name=""MailboxSelect"">"
+	strHTML = strHTML & "<option value=""""" & ">" & "Select a Folder" & "<" & "/option>"
 	
-	txt_input.value = objMailbox.Name & "\Inbox"
-	txt_input.Select
+	For Each folder in objNamespace.Folders
+		If Not Instr(folder.Name, "Internet") Then
+			DisplayOutputDiv folder.Name
+			DisplayOutputDiv "Accessing Root: " & folder.FullFolderPath 
+			
+			strHTML = strHTML & "<option value=" & Chr(34) & folder.FullFolderPath  & Chr(34) & ">" & folder.FullFolderPath  & "</option>"
 
-	DisplayOutputInTextArea "Done<br>"
+			For Each subfolder in folder.Folders
+				recursiveFetchFolder subfolder
+			Next
+		End If
+		
+		DisplayOutputDiv "------------------------"
+	Next
+	strHTML = strHTML & "</select>"
+	mailboxHTML.innerHTML = strHTML
+	DisplayOutputDiv "Ready to extract<br>"
 End Sub
 
-Function RemoveIllegalChar(text)
-	charToCheck = Array("/",":","*","?","<",">","|")
-	For Each c in charToCheck
-		If InStr(text,c) Then
-			text = Replace(text, c, "")
-			DisplayOutputInTextArea c & " " & text
-			' Return 
-			RemoveIllegalChar = text
+Sub recursiveFetchFolder(objFolder)
+	'-------------------------------------------------------------------
+	' Get folder and subfolder names and append to the drop down list
+	'-------------------------------------------------------------------
+	DisplayOutputDiv "Accessing Subfolder: " & objFolder.FullFolderPath 
+	strHTML = strHTML & "<option value=" & Chr(34) & objFolder.FullFolderPath  & Chr(34) & ">" & objFolder.FullFolderPath  & "</option>"
+	
+	For Each objSubFolder in objFolder.Folders
+		recursiveFetchFolder objSubFolder
+	Next
+End Sub
+
+Sub createFolder(path)
+	'-------------------------------------------------------------------
+	' Create folder if does not exist
+	'-------------------------------------------------------------------
+	output_folder_path = txt_output.value & path
+	If Not fso.FolderExists(output_folder_path) Then
+		fso.CreateFolder output_folder_path
+		DisplayOutputDiv "Creating Folder Dir...." & chr(34) & output_folder_path & chr(34) & "</br>" 
+	End If
+		
+End Sub
+
+Sub SaveAllAttachments(colItems, output_folder_path)
+	'-------------------------------------------------------------------
+	' Saving all attachment in folder
+	'-------------------------------------------------------------------
+
+	For Each objMessage In colItems
+		intCount = objMessage.Attachments.Count
+	
+		DisplayOutputDiv "Checking >> <i>" & objMessage.ConversationTopic & "</i>"
+		If intCount > 0 Then
+			For i = 1 To intCount 
+				If Not fso.FolderExists(output_folder_path) Then
+					fso.CreateFolder output_folder_path
+					DisplayOutputDiv "Creating Sub Folder Dir...." & output_folder_path  & "</br>" 
+				End If
+				
+				' Edit Here for file name / extension / save path
+				' Do not save signatures images or in body images
+				If instr(objMessage.Attachments.Item(i).FileName, "image0") = 0 Then
+						DisplayOutputDiv "<font color=""green"" font-weight:Bold;"">Saving ->>>>>> " & output_folder_path & objMessage.SenderName & " - " & objMessage.Attachments.Item(i).FileName & "</font>"
+						objMessage.Attachments.Item(i).SaveAsFile output_folder_path & objMessage.SenderName & " - " & objMessage.Attachments.Item(i).FileName 
+					' totalExtract = totalExtract + 1
+				end if
+			Next
 		End If
 	Next
-End Function
+End Sub
 
-Sub extract
-	btn_extract.Disabled = True
+Sub LoopFolderForAttachment(objFolder, checkPath)
+	'-------------------------------------------------------------------
+	' Extracts attachments of every mail in the folder and subfolder
+	'-------------------------------------------------------------------
+	For Each objSubfolder in objFolder.Folders
+		DisplayOutputDiv "Retrieving Items >>> " & objSubfolder.Name
+		SaveAllAttachments objSubfolder.Items, txt_output.value & checkPath & "\" & objSubfolder.Name & "\"
+		LoopFolderForAttachment objSubFolder, checkPath & "\" & objSubfolder.Name 
+	Next
+End Sub
+
+Sub ExtractClick
+	'-------------------------------------------------------------------
+	' Checks for folder path and mailbox path before extracting
+	'-------------------------------------------------------------------
+	if MailboxSelect.SelectedIndex = 0 then
+		msgbox "You have to select a folder from list.", 48, "Select Folder"
+		exit sub
+	end if
+
+	ButtonDisabled True
 	On Error Resume Next
-	DisplayOutputInTextArea ""
+	DisplayOutputDiv ""
 	' Check if output folder is valid
 	If Not fso.FolderExists(txt_output.value) Then
 		msgbox "Invalid Output Path"
 	Else
 		' Get path for input
 		' check if path is valid in the mail
-		DisplayOutputInTextArea "Checking mailbox folders..."
-		' check root
-		root_bool = False
-		first_folder_bool = False
-		first_sub_bool = False
-		For Each path in split(txt_input.value, "\")
-			If Not root_bool Then
-				' Get the root folder first
-				DisplayOutputInTextArea "Accessing ROOT: " & path
-				
-				set objRoot = objOutlook.Session.Folders.item(path)
-				
-				If Err.Number <> 0 Then
-					DisplayOutputInTextArea Err.Description
-					Err.Clear
-					btn_extract.Disabled = False
-					Exit For
-				Else				
-					DisplayOutputInTextArea "Successful <br>"
-					root_bool = True
-					
+		DisplayOutputDiv "Checking mailbox folders..."
+		mailbox_path = Right(MailboxSelect.Value, Len(MailboxSelect.Value) - 2)
 
-				End If
-				
-			ElseIf root_bool And Not first_folder_bool Then
-				' Get the remaining folder (recursive)
-				DisplayOutputInTextArea "Accessing Folder: " & path	
-				Set objFolder = objRoot.Folders.Item(path)
-				
-				If Err.Number <> 0 Then
-					DisplayOutputInTextArea Err.Description
-					Err.Clear
-					btn_extract.Disabled = False
-					Exit For
-				Else				
-					DisplayOutputInTextArea "Successful >>> " & objFolder.Name & "<br>"
-					first_folder_bool = True
-				End If
-				
-			ElseIf root_bool And first_folder_bool And Not first_sub_bool Then
-				DisplayOutputInTextArea "Accessing Folder: " & path	
-				Set objSubFolder = objFolder.Folders.Item(path)
-				
-				If Err.Number <> 0 Then
-					DisplayOutputInTextArea Err.Description
-					Err.Clear
-					btn_extract.Disabled = False
-					Exit For
-				Else				
-					DisplayOutputInTextArea "Successful >>> " & objSubFolder.Name & "<br>"
-					first_sub_bool = True
-				End If				
+		' Get the starting folder, which is the last folder name of the path
+		checkPath = ""
+		loopCount = 0 
+		spiltPath = split(mailbox_path, "\")
+		For Each path in spiltPath
+			checkPath = checkPath & "\" & path
+			DisplayOutputDiv "Accessing >>> " & checkPath
+			createFolder checkPath
+			If loopCount = 0 Then
+				Set objFolder = objOutlook.Session.Folders.item(path)
+			Else
+				Set objFolder = objFolder.Folders.Item(path)
 			End If
+			loopCount = loopCount + 1
 		Next
-		
-		
-		If UBound(split(txt_input.value, "\")) = 0 Then
-			Set colItems = objRoot.Items 
-		ElseIf	UBound(split(txt_input.value, "\")) = 1 Then
-			Set colItems = objFolder.Items
-			folder_name = RemoveIllegalChar(objFolder.Name) 
-		Else 
-			Set colItems = objSubFolder.Items
-			folder_name = RemoveIllegalChar(objSubFolder.Name) 
-		End If
-		output_folder_path = txt_output.value & "\" & folder_name
 
-		If Not Right(output_folder_path, 1) = "\" Then
-			output_folder_path = output_folder_path & "\"
-		End If
-		
+		' Check the starting folder attachements before going into subfolders
+		'folderToStart = spiltPath(UBound(spiltPath))
+		DisplayOutputDiv "Retrieving Items >>> " & objFolder.Name
+		Set colItems = objFolder.Items 
+		SaveAllAttachments objFolder.Items, txt_output.value & checkPath & "\"
 
-		' Create a folder for inner mail
-		If Not fso.FolderExists(output_folder_path) Then
-				'objShell.Run "cmd /c mkdir """ & output_folder_path & """",0, True
-				fso.CreateFolder output_folder_path
-				DisplayOutputInTextArea "Creating Sub Folder Dir...." & chr(34) & output_folder_path & chr(34) & "</br>" 
-		End If
-		
-		' ' Saving attachments in a mail
-		' For Each objMessage In colItems
-		' 	intCount = objMessage.Attachments.Count
-		' 	If intCount > 0 Then	
-				
-		' 		saving_folder_path = output_folder_path & objMessage.ConversationTopic & "\"
-		' 		DisplayOutputInTextArea "<br>" & intCount & " Attachments >> " &  objMessage.ConversationTopic
-				
-		' 		For i = 1 To intCount 
-		' 			filename = objMessage.Attachments.Item(i).FileName
-		' 			If instr(filename, "image0") = 0 And Not fso.FolderExists(saving_folder_path) Then
-		' 			'If Not fso.FolderExists(saving_folder_path) Then)
-		' 				fso.CreateFolder 
-		' 				'objShell.Run "cmd /c mkdir """ & saving_folder_path & """",0, True
-		' 				DisplayOutputInTextArea "Creating Sub Folder Dir...." & saving_folder_path  & "</br>" 
-		' 			End If
-					
-		' 			If instr(filename, "image0") = 0 Then
-		' 				 DisplayOutputInTextArea "Saving ->> " & saving_folder_path & filename
-		' 				 objMessage.Attachments.Item(i).SaveAsFile saving_folder_path & filename
-		' 			end if
-		' 		Next
-		' 		DisplayOutputInTextArea ""
-		' 	Else
-		' 		DisplayOutputInTextArea "<br>No Attachments >> " & objMessage.ConversationTopic
-		' 	End If
-		' Next
-		
-		
-		' ' AssetVerification folder must be at root of your mail box
-		' Set objFolder = objMailbox.Folders("AssetVerification") 
-		' DisplayOutputInTextArea  "Accessing Folder: " & objFolder.Name 
-		
-		' ' Check if path exist
-		' DisplayOutputInTextArea "</br>Checking output folder: " & pathToExtract 	
-		' Set fso = CreateObject("Scripting.FileSystemObject")
-		' If Not fso.FolderExists(pathToExtract) Then
-			' DisplayOutputInTextArea "Not found. Creating " & pathToExtract 	
-			' objShell.Run "cmd /c mkdir " &  pathToExtract,0, True
-		' End If
-			
-		' For Each objSubFolder in objFolder.Folders 'For all folder in AV 
-			' DisplayOutputInTextArea "</br>Accessing " & objSubFolder.Name & "</br>"	
-			' ' mkdir
-			' subFolderPath = pathToExtract & objSubFolder.Name & "\"
-			' DisplayOutputInTextArea "Checking output folder: " & subFolderPath 	
-			' If Not fso.FolderExists(subFolderPath) Then
-				' objShell.Run "cmd /c mkdir " & subFolderPath,0, True
-				' DisplayOutputInTextArea "Not found. Creating " & subFolderPath  & "</br>" 
-			' End If
-
-			' ' Getting all emails in that department folder
-			' ' Set colItems = objSubFolder.Items.Restrict("[UnRead] = 'True'")
-			' Set colItems = objSubFolder.Items
-			
-			' For Each objMessage In colItems 'For all emails in the subfolder
-				' DisplayOutputInTextArea "</br>Fetching ->> " & objMessage.ConversationTopic
-				' intCount = objMessage.Attachments.Count
-				
-				' If intCount > 0 Then
-					' For i = 1 To intCount
-						' DisplayOutputInTextArea "Saving ->> " & subFolderPath & objMessage.Attachments.Item(i).FileName & "</br>"
-						' objMessage.Attachments.Item(i).SaveAsFile subFolderPath &  _
-							' objMessage.Attachments.Item(i).FileName 
-					' Next
-				' End If
-			' Next
-		' Next
-	
+		' Loop the subfolders
+		LoopFolderForAttachment objFolder,checkPath
+		MsgBox "Done"
 	End If
-	btn_extract.Disabled = False
+	ButtonDisabled False
+End Sub
+
+Sub ButtonDisabled(Toggle)
+	'-------------------------------------------------------------------
+	' Toggle the button to enable/disable
+	'-------------------------------------------------------------------
+	btn_pickfolder.Disabled = Toggle
+	btn_extract.Disabled = Toggle
 End Sub
 
 </SCRIPT>
@@ -286,7 +252,7 @@ End Sub
 			Email Folder Path:
 		</td>
 		<td>
-			<input class="input_style" ID="txt_input" onFocus="Javascript:this.select();" style="border-style;width:420px;font-size:8pt;" type="text"/>
+			<span id="mailboxHTML"></span>
 		</td>
 		<td>&nbsp;</td>
 		<td></td>
@@ -297,7 +263,7 @@ End Sub
 			Output Folder Dir:
 		</td>
 		<td>
-			<input class="input_style" ID="txt_output" onFocus="Javascript:this.select()" style="border-style;width:420px;font-size:8pt;" type="text"/>
+			<input class="input_style" ID="txt_output" onFocus="Javascript:this.select()" style="border-style;width:420px;font-size:8pt;" type="text" disabled/>
 		</td>
 		<td style="width: 10px">&nbsp;</td>
 		<td align="right">
@@ -309,7 +275,7 @@ End Sub
 <table border="0" width="100%">
 	<tr>
 		<td align="right" width="100%">
-			<input id=btn_extract style="width:97px" type="button" value="Extract"  name="check_button" onClick="extract()">
+			<input id=btn_extract style="width:97px" type="button" value="Extract"  name="check_button" onClick="ExtractClick()">
 			<span style="width:10px"></span>	
 		</td>
 	</tr>
